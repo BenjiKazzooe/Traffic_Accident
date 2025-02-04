@@ -1,0 +1,61 @@
+import pandas as pd
+import sqlite3
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
+from imblearn.over_sampling import SMOTE
+
+# dataset
+conn = sqlite3.connect("accidents.db")
+df = pd.read_sql("""
+    SELECT Severity, Start_Lat, Start_Lng, `Temperature(F)`, `Visibility(mi)`, `Precipitation(in)`, Weather_Condition
+    FROM accidents LIMIT 50000;
+""", conn)
+conn.close()
+
+df.dropna(inplace=True)
+df = pd.get_dummies(df, columns=["Weather_Condition"], drop_first=True)
+
+# Define features and target variable
+X, y = df.drop(columns=["Severity"]), df["Severity"]
+print("Class distribution before SMOTE:", y.value_counts())
+
+# SMOTE
+X_resampled, y_resampled = SMOTE(random_state=42).fit_resample(X, y)
+print("Class distribution after SMOTE:", pd.Series(y_resampled).value_counts())
+
+# Train model
+X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42, stratify=y_resampled)
+clf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced').fit(X_train, y_train)
+y_pred = clf.predict(X_test)
+print(f"Model Accuracy: {accuracy_score(y_test, y_pred):.2f}")
+print("Classification Report:\n", classification_report(y_test, y_pred, zero_division=1))
+
+# Dash App Setup
+app = dash.Dash(__name__)
+app.layout = html.Div([
+    html.H1("Traffic Accident Analysis Dashboard", style={'textAlign': 'center'}),
+    dcc.Dropdown(id='severity-dropdown',
+                 options=[{'label': str(sev), 'value': sev} for sev in sorted(df['Severity'].unique())],
+                 value=df['Severity'].unique()[0]),
+    dcc.Graph(id='accidents-over-time'),
+    dcc.Graph(id='accidents-map')
+])
+
+@app.callback(Output('accidents-over-time', 'figure'), [Input('severity-dropdown', 'value')])
+def update_time_chart(selected_severity):
+    filtered_df = df[df['Severity'] == selected_severity]
+    time_counts = filtered_df.groupby('Start_Lat').size().reset_index(name='count')
+    return px.line(time_counts, x='Start_Lat', y='count', title='Accidents Over Time')
+
+@app.callback(Output('accidents-map', 'figure'), [Input('severity-dropdown', 'value')])
+def update_map(selected_severity):
+    return px.scatter_mapbox(df[df['Severity'] == selected_severity], lat="Start_Lat", lon="Start_Lng", color="Severity",
+                             mapbox_style="carto-positron", zoom=4, title="Accident Hotspots")
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
