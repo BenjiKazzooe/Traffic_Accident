@@ -97,6 +97,7 @@ print(f"Model Accuracy: {accuracy:.2f}")
 | 2 | 0.87 | 0.82 | 0.84 |
 | 3 | 0.83 | 0.87 | 0.85 |
 | 4 | 1.00 | 1.00 | 1.00 |
+
 ✅ **Perfect recall for Severity 4 = Critical accidents detected accurately** 🚑
 
 ---
